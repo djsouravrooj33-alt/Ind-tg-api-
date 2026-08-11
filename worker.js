@@ -9,68 +9,56 @@ const API_KEYS = [
 
 const DEVELOPER = "@amane_friends";
 
-const OWNER = "djsouravrooj33-alt";
-const REPO = "Ind-tg-api-";
-const BRANCH = "main";
+// ======================================================
+// GITHUB PUBLIC DATABASE
+// ======================================================
 
-const headers = {
+const JSON_URL =
+  "https://raw.githubusercontent.com/djsouravrooj33-alt/Ind-tg-api-/main/tg_India%20(2).json";
+
+const TXT_URL =
+  "https://raw.githubusercontent.com/djsouravrooj33-alt/Ind-tg-api-/main/INDIAN_TG_NUMBERS.txt";
+
+
+// ======================================================
+// RESPONSE HEADERS
+// ======================================================
+
+const HEADERS = {
   "Content-Type": "application/json; charset=UTF-8",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Allow-Headers": "*"
 };
 
+
+// ======================================================
+// JSON RESPONSE
+// ======================================================
+
 function send(data, status = 200) {
   return new Response(
     JSON.stringify(data, null, 2),
     {
       status,
-      headers
+      headers: HEADERS
     }
   );
 }
 
 
-// ==========================================
-// GITHUB API
-// ==========================================
+// ======================================================
+// LOAD FILE WITH CLOUDFLARE CACHE
+// ======================================================
 
-async function githubFetch(path, env) {
+async function loadFile(url, ctx) {
 
-  if (!env.GITHUB_TOKEN) {
-    throw new Error("GITHUB_TOKEN secret is missing");
-  }
+  const cacheKey = new Request(url);
 
-  const response = await fetch(
-    `https://api.github.com${path}`,
-    {
-      headers: {
-        "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "Cloudflare-Game-API"
-      }
-    }
-  );
+  // -----------------------------
+  // CHECK CACHE
+  // -----------------------------
 
-  return response;
-}
-
-
-// ==========================================
-// GET DATABASE FILE
-// ==========================================
-
-async function getFile(filename, env, ctx) {
-
-  const path =
-    `/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(filename)}?ref=${BRANCH}`;
-
-  const cacheKey = new Request(
-    `https://database-cache.example/${filename}`
-  );
-
-  // Cache
   const cached =
     await caches.default.match(cacheKey);
 
@@ -78,42 +66,30 @@ async function getFile(filename, env, ctx) {
     return await cached.text();
   }
 
+
+  // -----------------------------
+  // FETCH GITHUB
+  // -----------------------------
+
   const response =
-    await githubFetch(path, env);
+    await fetch(url);
 
   if (!response.ok) {
 
-    const errorText =
-      await response.text();
-
     throw new Error(
-      `GitHub file error: ${response.status} - ${errorText}`
+      `GitHub file error: ${response.status}`
     );
   }
 
-  const data =
-    await response.json();
-
-  // GitHub returns base64 for contents API
-  if (!data.content) {
-    throw new Error(
-      `GitHub returned no content for ${filename}`
-    );
-  }
-
-  const binary =
-    atob(
-      data.content.replace(/\n/g, "")
-    );
-
-  const bytes =
-    Uint8Array.from(
-      binary,
-      c => c.charCodeAt(0)
-    );
 
   const text =
-    new TextDecoder().decode(bytes);
+    await response.text();
+
+
+  // -----------------------------
+  // SAVE CACHE
+  // 1 HOUR
+  // -----------------------------
 
   const cacheResponse =
     new Response(text, {
@@ -123,6 +99,7 @@ async function getFile(filename, env, ctx) {
       }
     });
 
+
   ctx.waitUntil(
     caches.default.put(
       cacheKey,
@@ -130,108 +107,69 @@ async function getFile(filename, env, ctx) {
     )
   );
 
+
   return text;
 }
 
 
-// ==========================================
-// FIND DATABASE FILES AUTOMATICALLY
-// ==========================================
-
-async function findFiles(env) {
-
-  const path =
-    `/repos/${OWNER}/${REPO}/contents/?ref=${BRANCH}`;
-
-  const response =
-    await githubFetch(path, env);
-
-  if (!response.ok) {
-
-    const text =
-      await response.text();
-
-    throw new Error(
-      `GitHub repository error: ${response.status} - ${text}`
-    );
-  }
-
-  const files =
-    await response.json();
-
-  if (!Array.isArray(files)) {
-    throw new Error(
-      "GitHub repository listing is not an array"
-    );
-  }
-
-  let jsonFile = null;
-  let txtFile = null;
-
-  for (const file of files) {
-
-    if (file.type !== "file") {
-      continue;
-    }
-
-    const name =
-      file.name.toLowerCase();
-
-    if (
-      !jsonFile &&
-      name.endsWith(".json")
-    ) {
-      jsonFile = file.name;
-    }
-
-    if (
-      !txtFile &&
-      name.endsWith(".txt")
-    ) {
-      txtFile = file.name;
-    }
-  }
-
-  return {
-    jsonFile,
-    txtFile
-  };
-}
-
-
-// ==========================================
-// WORKER
-// ==========================================
+// ======================================================
+// MAIN WORKER
+// ======================================================
 
 export default {
 
   async fetch(request, env, ctx) {
 
+    // -----------------------------
+    // OPTIONS / CORS
+    // -----------------------------
+
     if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers
-      });
+
+      return new Response(
+        null,
+        {
+          headers: HEADERS
+        }
+      );
     }
+
+
+    // -----------------------------
+    // ONLY GET
+    // -----------------------------
+
+    if (request.method !== "GET") {
+
+      return send({
+        status: false,
+        message: "Only GET method allowed",
+        developer: DEVELOPER
+      }, 405);
+    }
+
 
     try {
 
       const url =
         new URL(request.url);
 
-      const id =
-        url.searchParams.get("id");
 
-      const apikey =
+      const apiKey =
         url.searchParams.get("apikey");
 
 
-      // ====================================
-      // API KEY
-      // ====================================
+      const userId =
+        url.searchParams.get("id");
+
+
+      // ==================================================
+      // API KEY CHECK
+      // ==================================================
 
       if (
-        !apikey ||
-        !API_KEYS.includes(apikey)
+        !apiKey ||
+        !API_KEYS.includes(apiKey)
       ) {
 
         return send({
@@ -242,193 +180,247 @@ export default {
       }
 
 
-      // ====================================
-      // ID
-      // ====================================
+      // ==================================================
+      // USER ID CHECK
+      // ==================================================
 
-      if (!id) {
+      if (!userId) {
 
         return send({
           status: false,
           message:
-            "Use: ?apikey=amane001&id=TEST001",
+            "Use: ?apikey=amane001&id=USER_ID",
           developer: DEVELOPER
         }, 400);
       }
 
-      const userId =
-        id.trim();
 
-
-      // ====================================
-      // FIND FILES
-      // ====================================
-
-      const files =
-        await findFiles(env);
-
-
-      if (!files.jsonFile && !files.txtFile) {
-
-        return send({
-          status: false,
-          message:
-            "No JSON/TXT database found in GitHub repository",
-          developer: DEVELOPER
-        }, 404);
-      }
+      const id =
+        userId.trim();
 
 
       let jsonResult = null;
       let txtResult = null;
 
 
-      // ====================================
-      // JSON
-      // ====================================
+      // ==================================================
+      // LOAD JSON DATABASE
+      // ==================================================
 
-      if (files.jsonFile) {
+      const jsonText =
+        await loadFile(
+          JSON_URL,
+          ctx
+        );
 
-        const jsonText =
-          await getFile(
-            files.jsonFile,
-            env,
-            ctx
-          );
 
-        let jsonData;
+      let jsonData;
 
-        try {
+      try {
 
-          jsonData =
-            JSON.parse(jsonText);
+        jsonData =
+          JSON.parse(jsonText);
 
-        } catch {
+      } catch {
 
-          throw new Error(
-            `Invalid JSON database: ${files.jsonFile}`
-          );
+        throw new Error(
+          "Invalid JSON database format"
+        );
+      }
+
+
+      // ==================================================
+      // SEARCH JSON
+      // ==================================================
+
+      if (
+        jsonData &&
+        typeof jsonData === "object"
+      ) {
+
+        // Direct match first
+
+        if (jsonData[id]) {
+
+          const item =
+            jsonData[id];
+
+          jsonResult = {
+
+            user_id: id,
+
+            room_id:
+              item.number || null,
+
+            country:
+              item.country || null,
+
+            country_code:
+              item.country_code || null
+
+          };
+
+        } else {
+
+          // Case-insensitive fallback
+
+          const wanted =
+            id.toLowerCase();
+
+          for (
+            const key of Object.keys(jsonData)
+          ) {
+
+            if (
+              key.toLowerCase() === wanted
+            ) {
+
+              const item =
+                jsonData[key];
+
+              jsonResult = {
+
+                user_id: key,
+
+                room_id:
+                  item.number || null,
+
+                country:
+                  item.country || null,
+
+                country_code:
+                  item.country_code || null
+
+              };
+
+              break;
+            }
+          }
         }
+      }
+
+
+      // ==================================================
+      // LOAD TXT DATABASE
+      // ==================================================
+
+      const txt =
+        await loadFile(
+          TXT_URL,
+          ctx
+        );
+
+
+      // ==================================================
+      // PARSE TXT
+      // ==================================================
+
+      const lines =
+        txt.split(/\r?\n/);
+
+
+      for (
+        const line of lines
+      ) {
+
+        const match =
+          line.match(
+            /User ID:\s*([^|]+)\s*\|\s*Phone:\s*([^|]+)\s*\|\s*Username:\s*(.*)/i
+          );
+
+
+        if (!match) {
+          continue;
+        }
+
+
+        const foundId =
+          match[1].trim();
 
 
         if (
-          jsonData &&
-          typeof jsonData === "object" &&
-          jsonData[userId]
+          foundId === id
         ) {
 
-          const item =
-            jsonData[userId];
+          txtResult = {
 
-          jsonResult = {
-            user_id: userId,
-            phone: item.number || null,
-            country: item.country || null,
-            country_code:
-              item.country_code || null
+            user_id:
+              foundId,
+
+            room_id:
+              match[2].trim(),
+
+            username:
+              match[3].trim() || null
+
           };
+
+
+          break;
         }
       }
 
 
-      // ====================================
-      // TXT
-      // ====================================
-
-      if (files.txtFile) {
-
-        const txt =
-          await getFile(
-            files.txtFile,
-            env,
-            ctx
-          );
-
-        const lines =
-          txt.split(/\r?\n/);
-
-
-        for (const line of lines) {
-
-          const match =
-            line.match(
-              /User ID:\s*([^|]+)\s*\|\s*Phone:\s*([^|]+)\s*\|\s*Username:\s*(.*)/i
-            );
-
-          if (!match) {
-            continue;
-          }
-
-          const foundId =
-            match[1].trim();
-
-
-          if (foundId === userId) {
-
-            txtResult = {
-              user_id: foundId,
-              phone: match[2].trim(),
-              username:
-                match[3].trim() || null
-            };
-
-            break;
-          }
-        }
-      }
-
-
-      // ====================================
+      // ==================================================
       // NOT FOUND
-      // ====================================
+      // ==================================================
 
-      if (!jsonResult && !txtResult) {
+      if (
+        !jsonResult &&
+        !txtResult
+      ) {
 
         return send({
+
           status: false,
-          query: userId,
-          message: "User ID not found",
-          database: {
-            json_file: files.jsonFile,
-            txt_file: files.txtFile
-          },
-          developer: DEVELOPER
+
+          query: id,
+
+          message:
+            "User ID not found",
+
+          developer:
+            DEVELOPER
+
         }, 404);
       }
 
 
-      // ====================================
+      // ==================================================
       // SUCCESS
-      // ====================================
+      // ==================================================
 
       return send({
 
         status: true,
 
-        query: userId,
+        query: id,
 
         json: jsonResult,
 
         txt: txtResult,
 
-        database: {
-          json_file: files.jsonFile,
-          txt_file: files.txtFile
-        },
-
-        developer: DEVELOPER
+        developer:
+          DEVELOPER
 
       });
 
+
     } catch (error) {
+
+      // ==================================================
+      // ERROR
+      // ==================================================
 
       return send({
 
         status: false,
 
-        error: error.message,
+        error:
+          error.message,
 
-        developer: DEVELOPER
+        developer:
+          DEVELOPER
 
       }, 500);
     }
