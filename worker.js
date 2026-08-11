@@ -12,10 +12,10 @@ const API_KEYS = [
 // ================================
 
 const JSON_URL =
-  "https://github.com/djsouravrooj33-alt/Ind-tg-api-/blob/main/tg_India%20(2).json";
+  "https://raw.githubusercontent.com/djsouravrooj33-alt/Ind-tg-api-/main/tg_India%20(2).json";
 
 const TXT_URL =
-  "https://github.com/djsouravrooj33-alt/Ind-tg-api-/blob/main/INDIAN_TG_NUMBERS.txt";
+  "https://raw.githubusercontent.com/djsouravrooj33-alt/Ind-tg-api-/main/INDIAN_TG_NUMBERS.txt";
 
 const DEVELOPER = "@amane_friends";
 
