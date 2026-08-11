@@ -1,3 +1,11 @@
+// ============================================================
+// IND TG GAME API
+// Private GitHub JSON + TXT
+// Cloudflare Cache
+// API Key Authentication
+// Developer: @amane_friends
+// ============================================================
+
 const API_KEYS = [
   "amane001",
   "amane002",
@@ -6,10 +14,6 @@ const API_KEYS = [
   "amane005",
   "amane006"
 ];
-
-// ================================
-// GITHUB RAW DATABASE URL
-// ================================
 
 const JSON_URL =
   "https://raw.githubusercontent.com/djsouravrooj33-alt/Ind-tg-api-/main/tg_India%20(2).json";
@@ -23,8 +27,14 @@ const headers = {
   "Content-Type": "application/json; charset=UTF-8",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "*"
+  "Access-Control-Allow-Headers": "*",
+  "Cache-Control": "no-store"
 };
+
+
+// ============================================================
+// JSON RESPONSE
+// ============================================================
 
 function send(data, status = 200) {
   return new Response(
@@ -36,26 +46,137 @@ function send(data, status = 200) {
   );
 }
 
+
+// ============================================================
+// LOAD PRIVATE GITHUB FILE WITH CLOUDFLARE CACHE
+// ============================================================
+
+async function getGitHubFile(url, env, ctx) {
+
+  const cacheKey = new Request(url, {
+    method: "GET"
+  });
+
+  // -------------------------------
+  // CHECK CLOUDFLARE CACHE
+  // -------------------------------
+
+  let cached = await caches.default.match(cacheKey);
+
+  if (cached) {
+    return await cached.text();
+  }
+
+
+  // -------------------------------
+  // GITHUB TOKEN CHECK
+  // -------------------------------
+
+  if (!env.GITHUB_TOKEN) {
+    throw new Error(
+      "GITHUB_TOKEN secret is not configured"
+    );
+  }
+
+
+  // -------------------------------
+  // FETCH PRIVATE GITHUB FILE
+  // -------------------------------
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+      "Accept": "application/vnd.github.raw+json",
+      "User-Agent": "Cloudflare-Worker-Game-API"
+    }
+  });
+
+
+  if (!response.ok) {
+
+    throw new Error(
+      `GitHub file error: ${response.status}`
+    );
+
+  }
+
+
+  const text = await response.text();
+
+
+  // -------------------------------
+  // SAVE TO CLOUDFLARE CACHE
+  // -------------------------------
+
+  const cacheResponse = new Response(text, {
+    headers: {
+      "Content-Type": "text/plain; charset=UTF-8",
+      "Cache-Control": "public, max-age=3600"
+    }
+  });
+
+  ctx.waitUntil(
+    caches.default.put(
+      cacheKey,
+      cacheResponse.clone()
+    )
+  );
+
+
+  return text;
+}
+
+
+// ============================================================
+// MAIN WORKER
+// ============================================================
+
 export default {
 
   async fetch(request, env, ctx) {
 
+    // -------------------------------
+    // CORS
+    // -------------------------------
+
     if (request.method === "OPTIONS") {
-      return new Response(null, { headers });
+      return new Response(null, {
+        headers
+      });
     }
+
+
+    if (request.method !== "GET") {
+
+      return send({
+        status: false,
+        message: "Only GET method allowed",
+        developer: DEVELOPER
+      }, 405);
+
+    }
+
 
     try {
 
       const url = new URL(request.url);
 
-      const id = url.searchParams.get("id");
-      const apikey = url.searchParams.get("apikey");
+      const userId =
+        url.searchParams.get("id");
 
-      // ================================
-      // API KEY
-      // ================================
+      const apiKey =
+        url.searchParams.get("apikey");
 
-      if (!apikey || !API_KEYS.includes(apikey)) {
+
+      // ======================================================
+      // API KEY AUTHENTICATION
+      // ======================================================
+
+      if (
+        !apiKey ||
+        !API_KEYS.includes(apiKey)
+      ) {
 
         return send({
           status: false,
@@ -65,204 +186,203 @@ export default {
 
       }
 
-      // ================================
-      // USER ID
-      // ================================
 
-      if (!id) {
+      // ======================================================
+      // USER ID CHECK
+      // ======================================================
+
+      if (!userId) {
 
         return send({
           status: false,
-          message: "Use: ?apikey=amane001&id=TEST001",
+          message:
+            "Use: ?apikey=amane001&id=USER_ID",
           developer: DEVELOPER
         }, 400);
 
       }
 
-      const userId = id.trim();
+
+      const id =
+        userId.trim();
+
 
       let jsonResult = null;
       let txtResult = null;
 
-      // ==================================================
+
+      // ======================================================
       // JSON DATABASE
-      // ==================================================
+      // ======================================================
 
-      const jsonCacheKey = new Request(
-        JSON_URL,
-        {
-          method: "GET"
-        }
-      );
-
-      let jsonResponse =
-        await caches.default.match(jsonCacheKey);
-
-      if (!jsonResponse) {
-
-        const githubResponse =
-          await fetch(JSON_URL);
-
-        if (!githubResponse.ok) {
-
-          throw new Error(
-            "GitHub JSON file not found: " +
-            githubResponse.status
-          );
-
-        }
-
-        jsonResponse = new Response(
-          githubResponse.body,
-          githubResponse
+      const jsonText =
+        await getGitHubFile(
+          JSON_URL,
+          env,
+          ctx
         );
 
-        jsonResponse.headers.set(
-          "Cache-Control",
-          "public, max-age=3600"
-        );
 
-        ctx.waitUntil(
-          caches.default.put(
-            jsonCacheKey,
-            jsonResponse.clone()
-          )
+      let jsonData;
+
+      try {
+
+        jsonData =
+          JSON.parse(jsonText);
+
+      } catch {
+
+        throw new Error(
+          "Invalid JSON database"
         );
 
       }
 
-      const jsonData =
-        await jsonResponse.clone().json();
+
+      // Find User ID in JSON
 
       if (
         jsonData &&
         typeof jsonData === "object" &&
-        jsonData[userId]
+        jsonData[id]
       ) {
 
-        const item = jsonData[userId];
+        const item =
+          jsonData[id];
+
 
         jsonResult = {
-          user_id: userId,
-          phone: item.number || null,
-          country: item.country || null,
-          country_code: item.country_code || null
+
+          user_id: id,
+
+          room_id:
+            item.number || null,
+
+          country:
+            item.country || null,
+
+          country_code:
+            item.country_code || null
+
         };
 
       }
 
-      // ==================================================
+
+      // ======================================================
       // TXT DATABASE
-      // ==================================================
-
-      const txtCacheKey = new Request(
-        TXT_URL,
-        {
-          method: "GET"
-        }
-      );
-
-      let txtResponse =
-        await caches.default.match(txtCacheKey);
-
-      if (!txtResponse) {
-
-        const githubResponse =
-          await fetch(TXT_URL);
-
-        if (!githubResponse.ok) {
-
-          throw new Error(
-            "GitHub TXT file not found: " +
-            githubResponse.status
-          );
-
-        }
-
-        txtResponse = new Response(
-          githubResponse.body,
-          githubResponse
-        );
-
-        txtResponse.headers.set(
-          "Cache-Control",
-          "public, max-age=3600"
-        );
-
-        ctx.waitUntil(
-          caches.default.put(
-            txtCacheKey,
-            txtResponse.clone()
-          )
-        );
-
-      }
+      // ======================================================
 
       const txt =
-        await txtResponse.clone().text();
+        await getGitHubFile(
+          TXT_URL,
+          env,
+          ctx
+        );
+
 
       const lines =
         txt.split(/\r?\n/);
 
+
       for (const line of lines) {
 
-        const match = line.match(
-          /User ID:\s*([^|]+)\s*\|\s*Phone:\s*([^|]+)\s*\|\s*Username:\s*(.*)/i
-        );
+        const match =
+          line.match(
+            /User ID:\s*([^|]+)\s*\|\s*Phone:\s*([^|]+)\s*\|\s*Username:\s*(.*)/i
+          );
+
 
         if (!match) {
           continue;
         }
 
+
         const foundId =
           match[1].trim();
 
-        if (foundId === userId) {
+
+        if (foundId === id) {
 
           txtResult = {
-            user_id: foundId,
-            phone: match[2].trim(),
-            username: match[3].trim()
+
+            user_id:
+              foundId,
+
+            room_id:
+              match[2].trim(),
+
+            username:
+              match[3].trim()
+
           };
 
+
           break;
+
         }
 
       }
 
-      // ==================================================
-      // NOT FOUND
-      // ==================================================
 
-      if (!jsonResult && !txtResult) {
+      // ======================================================
+      // USER NOT FOUND
+      // ======================================================
+
+      if (
+        !jsonResult &&
+        !txtResult
+      ) {
 
         return send({
+
           status: false,
-          query: userId,
-          message: "User ID not found",
-          developer: DEVELOPER
+
+          query: id,
+
+          message:
+            "User ID not found",
+
+          developer:
+            DEVELOPER
+
         }, 404);
 
       }
 
-      // ==================================================
+
+      // ======================================================
       // SUCCESS
-      // ==================================================
+      // ======================================================
 
       return send({
+
         status: true,
-        query: userId,
+
+        query: id,
+
         json: jsonResult,
+
         txt: txtResult,
-        developer: DEVELOPER
+
+        developer:
+          DEVELOPER
+
       });
+
 
     } catch (error) {
 
       return send({
+
         status: false,
-        error: error.message,
-        developer: DEVELOPER
+
+        error:
+          error.message,
+
+        developer:
+          DEVELOPER
+
       }, 500);
 
     }
