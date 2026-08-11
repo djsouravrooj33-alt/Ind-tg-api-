@@ -13,15 +13,11 @@ const OWNER = "djsouravrooj33-alt";
 const REPO = "Ind-tg-api-";
 const BRANCH = "main";
 
-const JSON_FILE = "tg_India (2).json";
-const TXT_FILE = "INDIAN_TG_NUMBERS.txt";
-
 const headers = {
   "Content-Type": "application/json; charset=UTF-8",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "*",
-  "Cache-Control": "no-store"
+  "Access-Control-Allow-Headers": "*"
 };
 
 function send(data, status = 200) {
@@ -36,63 +32,96 @@ function send(data, status = 200) {
 
 
 // ==========================================
-// GET FILE FROM PRIVATE GITHUB
+// GITHUB API
 // ==========================================
 
-async function getGitHubFile(filename, env, ctx) {
-
-  const apiUrl =
-    `https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(filename)}?ref=${BRANCH}`;
-
-  const cacheKey = new Request(
-    `https://cache.internal/${filename}?branch=${BRANCH}`
-  );
-
-  // -----------------------------
-  // CHECK CLOUDFLARE CACHE
-  // -----------------------------
-
-  const cached = await caches.default.match(cacheKey);
-
-  if (cached) {
-    return await cached.text();
-  }
-
-  // -----------------------------
-  // GITHUB REQUEST
-  // -----------------------------
+async function githubFetch(path, env) {
 
   if (!env.GITHUB_TOKEN) {
     throw new Error("GITHUB_TOKEN secret is missing");
   }
 
-  const response = await fetch(apiUrl, {
-    method: "GET",
-    headers: {
-      "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
-      "Accept": "application/vnd.github.raw+json",
-      "User-Agent": "Cloudflare-Game-API"
+  const response = await fetch(
+    `https://api.github.com${path}`,
+    {
+      headers: {
+        "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "Cloudflare-Game-API"
+      }
     }
-  });
+  );
+
+  return response;
+}
+
+
+// ==========================================
+// GET DATABASE FILE
+// ==========================================
+
+async function getFile(filename, env, ctx) {
+
+  const path =
+    `/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(filename)}?ref=${BRANCH}`;
+
+  const cacheKey = new Request(
+    `https://database-cache.example/${filename}`
+  );
+
+  // Cache
+  const cached =
+    await caches.default.match(cacheKey);
+
+  if (cached) {
+    return await cached.text();
+  }
+
+  const response =
+    await githubFetch(path, env);
 
   if (!response.ok) {
+
+    const errorText =
+      await response.text();
+
     throw new Error(
-      `GitHub file error: ${response.status}`
+      `GitHub file error: ${response.status} - ${errorText}`
     );
   }
 
-  const text = await response.text();
+  const data =
+    await response.json();
 
-  // -----------------------------
-  // CACHE FOR 1 HOUR
-  // -----------------------------
+  // GitHub returns base64 for contents API
+  if (!data.content) {
+    throw new Error(
+      `GitHub returned no content for ${filename}`
+    );
+  }
 
-  const cacheResponse = new Response(text, {
-    headers: {
-      "Content-Type": "text/plain; charset=UTF-8",
-      "Cache-Control": "public, max-age=3600"
-    }
-  });
+  const binary =
+    atob(
+      data.content.replace(/\n/g, "")
+    );
+
+  const bytes =
+    Uint8Array.from(
+      binary,
+      c => c.charCodeAt(0)
+    );
+
+  const text =
+    new TextDecoder().decode(bytes);
+
+  const cacheResponse =
+    new Response(text, {
+      headers: {
+        "Content-Type": "text/plain; charset=UTF-8",
+        "Cache-Control": "public, max-age=3600"
+      }
+    });
 
   ctx.waitUntil(
     caches.default.put(
@@ -106,7 +135,72 @@ async function getGitHubFile(filename, env, ctx) {
 
 
 // ==========================================
-// MAIN WORKER
+// FIND DATABASE FILES AUTOMATICALLY
+// ==========================================
+
+async function findFiles(env) {
+
+  const path =
+    `/repos/${OWNER}/${REPO}/contents/?ref=${BRANCH}`;
+
+  const response =
+    await githubFetch(path, env);
+
+  if (!response.ok) {
+
+    const text =
+      await response.text();
+
+    throw new Error(
+      `GitHub repository error: ${response.status} - ${text}`
+    );
+  }
+
+  const files =
+    await response.json();
+
+  if (!Array.isArray(files)) {
+    throw new Error(
+      "GitHub repository listing is not an array"
+    );
+  }
+
+  let jsonFile = null;
+  let txtFile = null;
+
+  for (const file of files) {
+
+    if (file.type !== "file") {
+      continue;
+    }
+
+    const name =
+      file.name.toLowerCase();
+
+    if (
+      !jsonFile &&
+      name.endsWith(".json")
+    ) {
+      jsonFile = file.name;
+    }
+
+    if (
+      !txtFile &&
+      name.endsWith(".txt")
+    ) {
+      txtFile = file.name;
+    }
+  }
+
+  return {
+    jsonFile,
+    txtFile
+  };
+}
+
+
+// ==========================================
+// WORKER
 // ==========================================
 
 export default {
@@ -114,22 +208,31 @@ export default {
   async fetch(request, env, ctx) {
 
     if (request.method === "OPTIONS") {
-      return new Response(null, { headers });
+      return new Response(null, {
+        headers
+      });
     }
 
     try {
 
-      const url = new URL(request.url);
+      const url =
+        new URL(request.url);
 
-      const id = url.searchParams.get("id");
-      const apikey = url.searchParams.get("apikey");
+      const id =
+        url.searchParams.get("id");
+
+      const apikey =
+        url.searchParams.get("apikey");
 
 
-      // ======================================
-      // API KEY CHECK
-      // ======================================
+      // ====================================
+      // API KEY
+      // ====================================
 
-      if (!apikey || !API_KEYS.includes(apikey)) {
+      if (
+        !apikey ||
+        !API_KEYS.includes(apikey)
+      ) {
 
         return send({
           status: false,
@@ -139,119 +242,145 @@ export default {
       }
 
 
-      // ======================================
-      // ID CHECK
-      // ======================================
+      // ====================================
+      // ID
+      // ====================================
 
       if (!id) {
 
         return send({
           status: false,
-          message: "Use: ?apikey=amane001&id=TEST001",
+          message:
+            "Use: ?apikey=amane001&id=TEST001",
           developer: DEVELOPER
         }, 400);
       }
 
-      const userId = id.trim();
+      const userId =
+        id.trim();
 
 
-      // ======================================
-      // RESULTS
-      // ======================================
+      // ====================================
+      // FIND FILES
+      // ====================================
+
+      const files =
+        await findFiles(env);
+
+
+      if (!files.jsonFile && !files.txtFile) {
+
+        return send({
+          status: false,
+          message:
+            "No JSON/TXT database found in GitHub repository",
+          developer: DEVELOPER
+        }, 404);
+      }
+
 
       let jsonResult = null;
       let txtResult = null;
 
 
-      // ======================================
-      // JSON DATABASE
-      // ======================================
+      // ====================================
+      // JSON
+      // ====================================
 
-      const jsonText =
-        await getGitHubFile(
-          JSON_FILE,
-          env,
-          ctx
-        );
+      if (files.jsonFile) {
 
-      let jsonData;
+        const jsonText =
+          await getFile(
+            files.jsonFile,
+            env,
+            ctx
+          );
 
-      try {
+        let jsonData;
 
-        jsonData = JSON.parse(jsonText);
+        try {
 
-      } catch {
+          jsonData =
+            JSON.parse(jsonText);
 
-        throw new Error(
-          "JSON database format is invalid"
-        );
+        } catch {
 
-      }
-
-
-      // Search User ID
-
-      if (
-        jsonData &&
-        typeof jsonData === "object" &&
-        jsonData[userId]
-      ) {
-
-        const item = jsonData[userId];
-
-        jsonResult = {
-          user_id: userId,
-          phone: item.number || null,
-          country: item.country || null,
-          country_code: item.country_code || null
-        };
-      }
-
-
-      // ======================================
-      // TXT DATABASE
-      // ======================================
-
-      const txt =
-        await getGitHubFile(
-          TXT_FILE,
-          env,
-          ctx
-        );
-
-      const lines =
-        txt.split(/\r?\n/);
-
-
-      for (const line of lines) {
-
-        const match = line.match(
-          /User ID:\s*([^|]+)\s*\|\s*Phone:\s*([^|]+)\s*\|\s*Username:\s*(.*)/i
-        );
-
-        if (!match) {
-          continue;
+          throw new Error(
+            `Invalid JSON database: ${files.jsonFile}`
+          );
         }
 
-        const foundId =
-          match[1].trim();
 
-        if (foundId === userId) {
+        if (
+          jsonData &&
+          typeof jsonData === "object" &&
+          jsonData[userId]
+        ) {
 
-          txtResult = {
-            user_id: foundId,
-            phone: match[2].trim(),
-            username: match[3].trim() || null
+          const item =
+            jsonData[userId];
+
+          jsonResult = {
+            user_id: userId,
+            phone: item.number || null,
+            country: item.country || null,
+            country_code:
+              item.country_code || null
           };
-
-          break;
         }
       }
 
 
-      // ======================================
+      // ====================================
+      // TXT
+      // ====================================
+
+      if (files.txtFile) {
+
+        const txt =
+          await getFile(
+            files.txtFile,
+            env,
+            ctx
+          );
+
+        const lines =
+          txt.split(/\r?\n/);
+
+
+        for (const line of lines) {
+
+          const match =
+            line.match(
+              /User ID:\s*([^|]+)\s*\|\s*Phone:\s*([^|]+)\s*\|\s*Username:\s*(.*)/i
+            );
+
+          if (!match) {
+            continue;
+          }
+
+          const foundId =
+            match[1].trim();
+
+
+          if (foundId === userId) {
+
+            txtResult = {
+              user_id: foundId,
+              phone: match[2].trim(),
+              username:
+                match[3].trim() || null
+            };
+
+            break;
+          }
+        }
+      }
+
+
+      // ====================================
       // NOT FOUND
-      // ======================================
+      // ====================================
 
       if (!jsonResult && !txtResult) {
 
@@ -259,14 +388,18 @@ export default {
           status: false,
           query: userId,
           message: "User ID not found",
+          database: {
+            json_file: files.jsonFile,
+            txt_file: files.txtFile
+          },
           developer: DEVELOPER
         }, 404);
       }
 
 
-      // ======================================
+      // ====================================
       // SUCCESS
-      // ======================================
+      // ====================================
 
       return send({
 
@@ -278,10 +411,14 @@ export default {
 
         txt: txtResult,
 
+        database: {
+          json_file: files.jsonFile,
+          txt_file: files.txtFile
+        },
+
         developer: DEVELOPER
 
       });
-
 
     } catch (error) {
 
