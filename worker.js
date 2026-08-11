@@ -1,11 +1,3 @@
-// ============================================================
-// IND TG GAME API
-// Private GitHub JSON + TXT
-// Cloudflare Cache
-// API Key Authentication
-// Developer: @amane_friends
-// ============================================================
-
 const API_KEYS = [
   "amane001",
   "amane002",
@@ -15,13 +7,14 @@ const API_KEYS = [
   "amane006"
 ];
 
-const JSON_URL =
-  "https://api.github.com/repos/djsouravrooj33-alt/Ind-tg-api-/contents/tg_India%20(2).json";
-
-const TXT_URL =
-  "https://api.github.com/repos/djsouravrooj33-alt/Ind-tg-api-/contents/INDIAN_TG_NUMBERS.txt";
-
 const DEVELOPER = "@amane_friends";
+
+const OWNER = "djsouravrooj33-alt";
+const REPO = "Ind-tg-api-";
+const BRANCH = "main";
+
+const JSON_FILE = "tg_India (2).json";
+const TXT_FILE = "INDIAN_TG_NUMBERS.txt";
 
 const headers = {
   "Content-Type": "application/json; charset=UTF-8",
@@ -30,11 +23,6 @@ const headers = {
   "Access-Control-Allow-Headers": "*",
   "Cache-Control": "no-store"
 };
-
-
-// ============================================================
-// JSON RESPONSE
-// ============================================================
 
 function send(data, status = 200) {
   return new Response(
@@ -47,67 +35,57 @@ function send(data, status = 200) {
 }
 
 
-// ============================================================
-// LOAD PRIVATE GITHUB FILE WITH CLOUDFLARE CACHE
-// ============================================================
+// ==========================================
+// GET FILE FROM PRIVATE GITHUB
+// ==========================================
 
-async function getGitHubFile(url, env, ctx) {
+async function getGitHubFile(filename, env, ctx) {
 
-  const cacheKey = new Request(url, {
-    method: "GET"
-  });
+  const apiUrl =
+    `https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(filename)}?ref=${BRANCH}`;
 
-  // -------------------------------
+  const cacheKey = new Request(
+    `https://cache.internal/${filename}?branch=${BRANCH}`
+  );
+
+  // -----------------------------
   // CHECK CLOUDFLARE CACHE
-  // -------------------------------
+  // -----------------------------
 
-  let cached = await caches.default.match(cacheKey);
+  const cached = await caches.default.match(cacheKey);
 
   if (cached) {
     return await cached.text();
   }
 
-
-  // -------------------------------
-  // GITHUB TOKEN CHECK
-  // -------------------------------
+  // -----------------------------
+  // GITHUB REQUEST
+  // -----------------------------
 
   if (!env.GITHUB_TOKEN) {
-    throw new Error(
-      "GITHUB_TOKEN secret is not configured"
-    );
+    throw new Error("GITHUB_TOKEN secret is missing");
   }
 
-
-  // -------------------------------
-  // FETCH PRIVATE GITHUB FILE
-  // -------------------------------
-
-  const response = await fetch(url, {
+  const response = await fetch(apiUrl, {
     method: "GET",
     headers: {
       "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
       "Accept": "application/vnd.github.raw+json",
-      "User-Agent": "Cloudflare-Worker-Game-API"
+      "User-Agent": "Cloudflare-Game-API"
     }
   });
 
-
   if (!response.ok) {
-
     throw new Error(
       `GitHub file error: ${response.status}`
     );
-
   }
-
 
   const text = await response.text();
 
-
-  // -------------------------------
-  // SAVE TO CLOUDFLARE CACHE
-  // -------------------------------
+  // -----------------------------
+  // CACHE FOR 1 HOUR
+  // -----------------------------
 
   const cacheResponse = new Response(text, {
     headers: {
@@ -123,163 +101,123 @@ async function getGitHubFile(url, env, ctx) {
     )
   );
 
-
   return text;
 }
 
 
-// ============================================================
+// ==========================================
 // MAIN WORKER
-// ============================================================
+// ==========================================
 
 export default {
 
   async fetch(request, env, ctx) {
 
-    // -------------------------------
-    // CORS
-    // -------------------------------
-
     if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers
-      });
+      return new Response(null, { headers });
     }
-
-
-    if (request.method !== "GET") {
-
-      return send({
-        status: false,
-        message: "Only GET method allowed",
-        developer: DEVELOPER
-      }, 405);
-
-    }
-
 
     try {
 
       const url = new URL(request.url);
 
-      const userId =
-        url.searchParams.get("id");
-
-      const apiKey =
-        url.searchParams.get("apikey");
+      const id = url.searchParams.get("id");
+      const apikey = url.searchParams.get("apikey");
 
 
-      // ======================================================
-      // API KEY AUTHENTICATION
-      // ======================================================
+      // ======================================
+      // API KEY CHECK
+      // ======================================
 
-      if (
-        !apiKey ||
-        !API_KEYS.includes(apiKey)
-      ) {
+      if (!apikey || !API_KEYS.includes(apikey)) {
 
         return send({
           status: false,
           message: "Invalid API Key",
           developer: DEVELOPER
         }, 401);
-
       }
 
 
-      // ======================================================
-      // USER ID CHECK
-      // ======================================================
+      // ======================================
+      // ID CHECK
+      // ======================================
 
-      if (!userId) {
+      if (!id) {
 
         return send({
           status: false,
-          message:
-            "Use: ?apikey=amane001&id=USER_ID",
+          message: "Use: ?apikey=amane001&id=TEST001",
           developer: DEVELOPER
         }, 400);
-
       }
 
+      const userId = id.trim();
 
-      const id =
-        userId.trim();
 
+      // ======================================
+      // RESULTS
+      // ======================================
 
       let jsonResult = null;
       let txtResult = null;
 
 
-      // ======================================================
+      // ======================================
       // JSON DATABASE
-      // ======================================================
+      // ======================================
 
       const jsonText =
         await getGitHubFile(
-          JSON_URL,
+          JSON_FILE,
           env,
           ctx
         );
-
 
       let jsonData;
 
       try {
 
-        jsonData =
-          JSON.parse(jsonText);
+        jsonData = JSON.parse(jsonText);
 
       } catch {
 
         throw new Error(
-          "Invalid JSON database"
+          "JSON database format is invalid"
         );
 
       }
 
 
-      // Find User ID in JSON
+      // Search User ID
 
       if (
         jsonData &&
         typeof jsonData === "object" &&
-        jsonData[id]
+        jsonData[userId]
       ) {
 
-        const item =
-          jsonData[id];
-
+        const item = jsonData[userId];
 
         jsonResult = {
-
-          user_id: id,
-
-          room_id:
-            item.number || null,
-
-          country:
-            item.country || null,
-
-          country_code:
-            item.country_code || null
-
+          user_id: userId,
+          phone: item.number || null,
+          country: item.country || null,
+          country_code: item.country_code || null
         };
-
       }
 
 
-      // ======================================================
+      // ======================================
       // TXT DATABASE
-      // ======================================================
+      // ======================================
 
       const txt =
         await getGitHubFile(
-          TXT_URL,
+          TXT_FILE,
           env,
           ctx
         );
-
 
       const lines =
         txt.split(/\r?\n/);
@@ -287,86 +225,60 @@ export default {
 
       for (const line of lines) {
 
-        const match =
-          line.match(
-            /User ID:\s*([^|]+)\s*\|\s*Phone:\s*([^|]+)\s*\|\s*Username:\s*(.*)/i
-          );
-
+        const match = line.match(
+          /User ID:\s*([^|]+)\s*\|\s*Phone:\s*([^|]+)\s*\|\s*Username:\s*(.*)/i
+        );
 
         if (!match) {
           continue;
         }
 
-
         const foundId =
           match[1].trim();
 
-
-        if (foundId === id) {
+        if (foundId === userId) {
 
           txtResult = {
-
-            user_id:
-              foundId,
-
-            room_id:
-              match[2].trim(),
-
-            username:
-              match[3].trim()
-
+            user_id: foundId,
+            phone: match[2].trim(),
+            username: match[3].trim() || null
           };
 
-
           break;
-
         }
-
       }
 
 
-      // ======================================================
-      // USER NOT FOUND
-      // ======================================================
+      // ======================================
+      // NOT FOUND
+      // ======================================
 
-      if (
-        !jsonResult &&
-        !txtResult
-      ) {
+      if (!jsonResult && !txtResult) {
 
         return send({
-
           status: false,
-
-          query: id,
-
-          message:
-            "User ID not found",
-
-          developer:
-            DEVELOPER
-
+          query: userId,
+          message: "User ID not found",
+          developer: DEVELOPER
         }, 404);
-
       }
 
 
-      // ======================================================
+      // ======================================
       // SUCCESS
-      // ======================================================
+      // ======================================
 
       return send({
 
         status: true,
 
-        query: id,
+        query: userId,
 
         json: jsonResult,
 
         txt: txtResult,
 
-        developer:
-          DEVELOPER
+        developer: DEVELOPER
 
       });
 
@@ -377,16 +289,11 @@ export default {
 
         status: false,
 
-        error:
-          error.message,
+        error: error.message,
 
-        developer:
-          DEVELOPER
+        developer: DEVELOPER
 
       }, 500);
-
     }
-
   }
-
 };
