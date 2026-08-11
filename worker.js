@@ -249,7 +249,7 @@ export default {
 
             user_id: id,
 
-            room_id:
+            mobile_number:
               item.number || null,
 
             country:
@@ -282,7 +282,7 @@ export default {
 
                 user_id: key,
 
-                mobile_numner:
+                mobile_number:
                   item.number || null,
 
                 country:
@@ -347,7 +347,7 @@ export default {
             user_id:
               foundId,
 
-            room_id:
+            mobile_number:
               match[2].trim(),
 
             username:
