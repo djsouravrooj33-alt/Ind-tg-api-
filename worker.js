@@ -282,7 +282,7 @@ export default {
 
                 user_id: key,
 
-                room_id:
+                mobile_numner:
                   item.number || null,
 
                 country:
