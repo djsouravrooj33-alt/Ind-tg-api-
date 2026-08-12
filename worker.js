@@ -10,23 +10,20 @@ const API_KEYS = [
 const DEVELOPER = "@amane_friends";
 
 // ======================================================
-// GITHUB PUBLIC JSON DATABASES
+// PUBLIC GITHUB JSON DATABASES
 // ======================================================
 
 const JSON_FILES = [
   "https://raw.githubusercontent.com/djsouravrooj33-alt/Ind-tg-api-/main/tg_India%20(2).json",
-
   "https://raw.githubusercontent.com/djsouravrooj33-alt/Ind-tg-api-/main/tg_ind_normaly.json"
 ];
 
-
 // ======================================================
-// GITHUB PUBLIC TXT DATABASE
+// PUBLIC GITHUB TXT DATABASE
 // ======================================================
 
 const TXT_URL =
   "https://raw.githubusercontent.com/djsouravrooj33-alt/Ind-tg-api-/main/INDIAN_TG_NUMBERS.txt";
-
 
 // ======================================================
 // RESPONSE HEADERS
@@ -39,13 +36,11 @@ const HEADERS = {
   "Access-Control-Allow-Headers": "*"
 };
 
-
 // ======================================================
-// JSON RESPONSE
+// SEND JSON
 // ======================================================
 
 function send(data, status = 200) {
-
   return new Response(
     JSON.stringify(data, null, 2),
     {
@@ -53,75 +48,48 @@ function send(data, status = 200) {
       headers: HEADERS
     }
   );
-
 }
 
-
 // ======================================================
-// LOAD GITHUB FILE + CLOUDFLARE CACHE
+// LOAD FILE WITH CLOUDFLARE CACHE
 // ======================================================
 
 async function loadFile(url, ctx) {
 
-  const cacheKey =
-    new Request(url);
+  const cacheKey = new Request(url);
 
-
-  // --------------------------------------------------
-  // CHECK CLOUDFLARE CACHE
-  // --------------------------------------------------
-
+  // Check Cloudflare Cache
   const cached =
     await caches.default.match(cacheKey);
 
-
   if (cached) {
-
     return await cached.text();
-
   }
 
-
-  // --------------------------------------------------
-  // FETCH GITHUB
-  // --------------------------------------------------
-
-  const response =
-    await fetch(url);
-
+  // Fetch from GitHub
+  const response = await fetch(url);
 
   if (!response.ok) {
-
     throw new Error(
       `GitHub file error: ${response.status}`
     );
-
   }
 
+  const text = await response.text();
 
-  const text =
-    await response.text();
+  // Cache for 1 hour
+  const cacheResponse = new Response(
+    text,
+    {
+      headers: {
+        "Content-Type":
+          "text/plain; charset=UTF-8",
 
-
-  // --------------------------------------------------
-  // SAVE IN CLOUDFLARE CACHE
-  // 1 HOUR
-  // --------------------------------------------------
-
-  const cacheResponse =
-    new Response(
-      text,
-      {
-        headers: {
-          "Content-Type":
-            "text/plain; charset=UTF-8",
-
-          "Cache-Control":
-            "public, max-age=3600"
-        }
+        "Cache-Control":
+          "public, max-age=3600"
       }
-    );
-
+    }
+  );
 
   ctx.waitUntil(
     caches.default.put(
@@ -130,25 +98,18 @@ async function loadFile(url, ctx) {
     )
   );
 
-
   return text;
-
 }
 
-
 // ======================================================
-// SEARCH JSON DATABASES
+// SEARCH ALL JSON DATABASES
 // ======================================================
 
 async function searchJSON(id, ctx) {
 
-  const wanted =
-    id.toLowerCase();
+  const wanted = id.toLowerCase();
 
-
-  for (
-    const jsonUrl of JSON_FILES
-  ) {
+  for (const jsonUrl of JSON_FILES) {
 
     const jsonText =
       await loadFile(
@@ -156,9 +117,7 @@ async function searchJSON(id, ctx) {
         ctx
       );
 
-
     let jsonData;
-
 
     try {
 
@@ -168,27 +127,18 @@ async function searchJSON(id, ctx) {
     } catch {
 
       throw new Error(
-        "Invalid JSON database: " +
-        jsonUrl
+        "Invalid JSON database format"
       );
-
     }
-
 
     if (
       !jsonData ||
       typeof jsonData !== "object"
     ) {
-
       continue;
-
     }
 
-
-    // ------------------------------------------------
-    // DIRECT MATCH
-    // ------------------------------------------------
-
+    // Direct match
     if (
       Object.prototype.hasOwnProperty.call(
         jsonData,
@@ -199,35 +149,16 @@ async function searchJSON(id, ctx) {
       const item =
         jsonData[id];
 
-
       return {
-
         user_id: id,
-
-        mobile_number:
-          item?.number ?? null,
-
-        country:
-          item?.country ?? null,
-
-        country_code:
-          item?.country_code ?? null,
-
-        source:
-          jsonUrl
-
+        mobile_number: item?.number ?? null,
+        country: item?.country ?? null,
+        country_code: item?.country_code ?? null
       };
-
     }
 
-
-    // ------------------------------------------------
-    // CASE-INSENSITIVE MATCH
-    // ------------------------------------------------
-
-    for (
-      const key of Object.keys(jsonData)
-    ) {
+    // Case-insensitive match
+    for (const key of Object.keys(jsonData)) {
 
       if (
         key.toLowerCase() === wanted
@@ -236,36 +167,18 @@ async function searchJSON(id, ctx) {
         const item =
           jsonData[key];
 
-
         return {
-
           user_id: key,
-
-          mobile_number:
-            item?.number ?? null,
-
-          country:
-            item?.country ?? null,
-
-          country_code:
-            item?.country_code ?? null,
-
-          source:
-            jsonUrl
-
+          mobile_number: item?.number ?? null,
+          country: item?.country ?? null,
+          country_code: item?.country_code ?? null
         };
-
       }
-
     }
-
   }
 
-
   return null;
-
 }
-
 
 // ======================================================
 // SEARCH TXT DATABASE
@@ -279,61 +192,36 @@ async function searchTXT(id, ctx) {
       ctx
     );
 
-
   const lines =
     txt.split(/\r?\n/);
 
-
-  for (
-    const line of lines
-  ) {
+  for (const line of lines) {
 
     const match =
       line.match(
         /User ID:\s*([^|]+)\s*\|\s*Phone:\s*([^|]+)\s*\|\s*Username:\s*(.*)/i
       );
 
-
     if (!match) {
-
       continue;
-
     }
-
 
     const foundId =
       match[1].trim();
 
-
-    if (
-      foundId === id
-    ) {
+    if (foundId === id) {
 
       return {
-
-        user_id:
-          foundId,
-
-        mobile_number:
-          match[2].trim(),
-
+        user_id: foundId,
+        mobile_number: match[2].trim(),
         username:
-          match[3].trim() || null,
-
-        source:
-          TXT_URL
-
+          match[3].trim() || null
       };
-
     }
-
   }
 
-
   return null;
-
 }
-
 
 // ======================================================
 // MAIN WORKER
@@ -341,16 +229,9 @@ async function searchTXT(id, ctx) {
 
 export default {
 
-  async fetch(
-    request,
-    env,
-    ctx
-  ) {
+  async fetch(request, env, ctx) {
 
-    // ==================================================
     // CORS
-    // ==================================================
-
     if (
       request.method === "OPTIONS"
     ) {
@@ -361,14 +242,9 @@ export default {
           headers: HEADERS
         }
       );
-
     }
 
-
-    // ==================================================
-    // ONLY GET
-    // ==================================================
-
+    // GET only
     if (
       request.method !== "GET"
     ) {
@@ -383,30 +259,25 @@ export default {
         },
         405
       );
-
     }
-
 
     try {
 
       const url =
         new URL(request.url);
 
-
       const apiKey =
         url.searchParams.get(
           "apikey"
         );
-
 
       const userId =
         url.searchParams.get(
           "id"
         );
 
-
       // ==================================================
-      // API KEY CHECK
+      // API KEY
       // ==================================================
 
       if (
@@ -418,23 +289,19 @@ export default {
           {
             status: false,
             message:
-              "Invalid API Key, need api key to dm @amane_loyal_me",
+              "Invalid API Key, need key to dm @amane_loyal_me",
             developer:
               DEVELOPER
           },
           401
         );
-
       }
 
-
       // ==================================================
-      // ID CHECK
+      // USER ID
       // ==================================================
 
-      if (
-        !userId
-      ) {
+      if (!userId) {
 
         return send(
           {
@@ -446,13 +313,10 @@ export default {
           },
           400
         );
-
       }
-
 
       const id =
         userId.trim();
-
 
       // ==================================================
       // SEARCH JSON
@@ -464,7 +328,6 @@ export default {
           ctx
         );
 
-
       // ==================================================
       // SEARCH TXT
       // ==================================================
@@ -474,7 +337,6 @@ export default {
           id,
           ctx
         );
-
 
       // ==================================================
       // NOT FOUND
@@ -488,21 +350,15 @@ export default {
         return send(
           {
             status: false,
-
-            query:
-              id,
-
+            query: id,
             message:
               "User ID not found",
-
             developer:
               DEVELOPER
           },
           404
         );
-
       }
-
 
       // ==================================================
       // SUCCESS
@@ -511,22 +367,14 @@ export default {
       return send(
         {
           status: true,
-
-          query:
-            id,
-
-          json:
-            jsonResult,
-
-          txt:
-            txtResult,
-
+          query: id,
+          json: jsonResult,
+          txt: txtResult,
           developer:
             DEVELOPER
         },
         200
       );
-
 
     } catch (error) {
 
@@ -537,18 +385,13 @@ export default {
       return send(
         {
           status: false,
-
           error:
             error.message,
-
           developer:
             DEVELOPER
         },
         500
       );
-
     }
-
   }
-
 };
