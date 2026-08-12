@@ -204,7 +204,7 @@ async function searchJSON(id, ctx) {
 
         user_id: id,
 
-        room_id:
+        mobile_number:
           item?.number ?? null,
 
         country:
@@ -241,7 +241,7 @@ async function searchJSON(id, ctx) {
 
           user_id: key,
 
-          room_id:
+          mobile_number:
             item?.number ?? null,
 
           country:
@@ -314,7 +314,7 @@ async function searchTXT(id, ctx) {
         user_id:
           foundId,
 
-        room_id:
+        mobile_number:
           match[2].trim(),
 
         username:
@@ -418,7 +418,7 @@ export default {
           {
             status: false,
             message:
-              "Invalid API Key",
+              "Invalid API Key, need api key to dm @amane_loyal_me",
             developer:
               DEVELOPER
           },
